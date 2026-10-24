@@ -1,0 +1,19 @@
+'use client';
+import { useState, type FormEvent } from 'react';
+import { api } from '@/lib/api';
+import { Badge, Field, Notice } from '@/components/ui';
+import { Err, Loading, PageTitle, Section, label, errMsg, useLoad } from '@/components/dash/kit';
+const STATUSES = ['invited', 'registered', 'activated', 'verified', 'retained', 'declined', 'unsubscribed'];
+export default function Campaigns() {
+  const { data, error, loading, reload } = useLoad(() => api<{ campaigns: any[] }>('/admin/campaigns'), []);
+  const [f, setF] = useState({ name: '', source: '', channel: 'other', notes: '' }); const [msg, setMsg] = useState<{ k: 'ok' | 'error'; t: string } | null>(null);
+  const run = async (fn: () => Promise<string | void>) => { setMsg(null); try { const t = await fn(); if (t) setMsg({ k: 'ok', t }); reload(); } catch (e) { setMsg({ k: 'error', t: errMsg(e) }); } };
+  const create = (e: FormEvent) => { e.preventDefault(); run(async () => { const r = await api<{ trackingLink: string }>('/admin/campaigns', { body: f }); setF({ name: '', source: '', channel: 'other', notes: '' }); return `Created. Tracking link: ${r.trackingLink}`; }); };
+  const invite = (id: string) => { const contactName = prompt('Contact / business name:'); if (!contactName) return; const contactEmail = prompt('Email (optional):') || ''; const consentBasis = prompt('How was consent or a lawful basis obtained? (required, e.g. "business replied to our WhatsApp message 2026-10-20")'); if (!consentBasis) return; run(async () => { await api(`/admin/campaigns/${id}/invitations`, { body: { contactName, contactEmail, consentBasis } }); }); };
+  return (<div className="space-y-6"><PageTitle title="Supplier acquisition campaigns" sub="Record outreach and its results. Contact only businesses that consented or where a lawful basis applies, and honour unsubscribes." />{msg && <Notice kind={msg.k}>{msg.t}</Notice>}<Err error={error} />
+    <Section title="New campaign"><form onSubmit={create} className="grid gap-4 sm:grid-cols-4"><Field label="Name" htmlFor="n"><input id="n" required className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field><Field label="Source code (?src=)" htmlFor="s"><input id="s" className="input" value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} placeholder="auto from name" /></Field>
+      <Field label="Channel" htmlFor="c"><select id="c" className="input" value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>{['email', 'whatsapp', 'event', 'partner', 'social', 'referral', 'other'].map((c) => <option key={c}>{c}</option>)}</select></Field><div className="flex items-end"><button className="btn-primary">Create</button></div></form></Section>
+    {loading ? <Loading /> : data?.campaigns.map((c) => (<Section key={c.id} title={c.name} actions={<div className="flex items-center gap-2"><Badge>{c.channel}</Badge><Badge tone="blue">{c.registrations} registered via ?src={c.source}</Badge><button className="btn-outline" onClick={() => invite(c.id)}>Add invitation</button></div>}>
+      {!c.invitations.length ? <p className="text-sm text-muted">No invitations recorded.</p> : <ul className="divide-y divide-line text-sm">{c.invitations.map((i: any) => (<li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2"><span>{i.contactName} <span className="text-muted">{i.contactEmail}</span><br /><span className="text-xs text-muted">Consent: {i.consentBasis}</span></span>
+        <select aria-label={`Status for ${i.contactName}`} className="input max-w-[11rem]" value={i.status} onChange={(e) => run(async () => { await api(`/admin/campaigns/${c.id}/invitations/${i.id}`, { method: 'PATCH', body: { status: e.target.value } }); })}>{STATUSES.map((s) => <option key={s} value={s}>{label(s)}</option>)}</select></li>))}</ul>}</Section>))}</div>);
+}
